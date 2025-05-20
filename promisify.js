@@ -12,6 +12,7 @@ function promisify(f) {
       args.push(callback); // append our custom callback to the end of f arguments
 
       f.call(this, ...args); // call the original function
+      f.call
     });
   };
 }
