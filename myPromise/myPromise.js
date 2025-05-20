@@ -105,24 +105,36 @@ class MyPromise {
             (value) => {
                 try {
                     if (typeof onFinally === 'function') {
-                        queueMicrotask(() => onFinally());
-                    }
+                        const result = onFinally();
+                        if (result && typeof result.then === 'function') {
+                            return result.then(
+                                res => value,
+                                err => { throw err }
+                            )
+                        }
+                    }  
                 }
                 catch (err) {
                     throw err;
                 }
                 return value;
             },
-            (value) => {
+            (reason) => {
                 try {
                     if (typeof onFinally === 'function') {
-                        queueMicrotask(() => onFinally());
+                        const result = onFinally();
+                        if (result && typeof result.then === 'function') {
+                            return result.then(
+                                res => { throw reason },
+                                err => { throw err }
+                            )
+                        }
                     }
                 }
                 catch (err) {
                     throw err;
                 }
-                throw value;
+                throw reason;
             }
         );
     }

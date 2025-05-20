@@ -17,23 +17,6 @@ function checkBothEven(number1, number2) {
     .then(() => [number1, number2]);
 }
 
-/**
- * Part 3: Promise.race
- * 
- * Promise.race takes an array of promises and returns a new promise that resolves
- * or rejects as soon as one of the promises in the array resolves or rejects.
- * 
- * This is useful for implementing timeouts or taking the result of whichever
- * operation completes first.
- * 
- * Complete the function below to:
- * 1. Create a promise that resolves after a specified delay with a timeout message
- * 2. Use Promise.race to race between the operation and the timeout
- * 3. If the operation completes before the timeout, resolve with its result
- * 4. If the timeout happens first, resolve with the timeout message
- */
-
-
 // This simulates an operation that takes a variable amount of time
 function delayedOperation(value, delay) {
   return new Promise((resolve) => {

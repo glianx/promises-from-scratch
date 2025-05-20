@@ -57,7 +57,7 @@ new Promise(resolve => {
     readFile("data.csv", text => resolve(text))
 }).then(console.log);
 
-Promise.resolve(69).then(console.log);
+Promise.resolve(123).then(console.log);
 new Promise(() => console.log("hello"));
 
 fileList = 

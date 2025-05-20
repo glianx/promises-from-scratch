@@ -2,7 +2,7 @@ function fetchData(url, callback) {
     console.log("fetchin' data...");
     // simulate network lag
     setTimeout(() => {
-        data = {"url": url, "id": 69};
+        data = {"url": url, "id": 123};
         callback(data);
     }, 2000)
 }
