@@ -1,10 +1,14 @@
-class myPromise {
+class MyPromise {
     constructor(executor) {
-        this.value = undefined;
-        this.state = "pending";
+        if (typeof executor !== 'function') {
+            throw new TypeError('Promise resolver ' + executor + ' is not a function');
+        }
 
-        this.onFulfilledCallbacks  = [];
-        this.onRejectedCallbacks  = [];
+        this._value = undefined;
+        this._state = "pending";
+
+        this._fulfilledQueue  = [];
+        this._rejectedQueue   = [];
 
         try {
             executor(this.resolve.bind(this), this.reject.bind(this));
@@ -15,66 +19,79 @@ class myPromise {
     }
 
     resolve(value) {
-        if (this.state == "pending") {
-            this.value = value;
-            this.state = "fulfilled";
-
-            for (let i = 0; i < this.onFulfilledCallbacks.length; i++) {
-                let onFulfilled = this.onFulfilledCallbacks[i];
-                if (onFulfilled) {
-                    onFulfilled(value)
-                }
+        if (this._state == "pending") {
+            if (value && (typeof value === 'object' ||  typeof value === 'function')
+                      &&  typeof value.then === 'function') {
+                MyPromise.resolve(value).then(
+                    res => this._fulfill(res),
+                    err => this.reject(err)
+                )
+            }
+            else {
+                this._fulfill(value)
             }
         }
     }
 
-    reject(value) {
-        if (this.state == "pending") {
-            this.value = value;
-            this.state = "rejected";
+    _fulfill(res) {
+        this._value = res;
+        this._state = "fulfilled";
 
-            for (let i = 0; i < this.onRejectedCallbacks.length; i++) {
-                let onRejected = this.onRejectedCallbacks[i];
-                if (onRejected) {
-                    onRejected(value)
-                }
+        for (let onFulfilled of this._fulfilledQueue)
+            if (onFulfilled) {
+                queueMicrotask(() => onFulfilled(res));
             }
+    }
+
+    reject(reason) {
+        if (this._state == "pending") {
+            this._value = reason;
+            this._state = "rejected";
+
+            for (let onRejected of this._rejectedQueue)
+                if (onRejected) {
+                    queueMicrotask(() => onRejected(reason));
+                }
         }
     }
 
     then(onFulfilled, onRejected) {
-        if (this.state == "fulfilled") {
-            if (onFulfilled)
-                return new myPromise((resolve, reject) => {
-                    try {resolve(onFulfilled(this.value))}
-                    catch (err) {reject(err)}
+        if (this._state == "fulfilled") {
+            if (typeof onFulfilled === 'function')
+                return new MyPromise((resolve, reject) => {
+                    queueMicrotask(() => {
+                        try { resolve(onFulfilled(this._value)) }
+                        catch (err) {reject(err)}
+                    });
                 });
-            return new myPromise((resolve, reject) => resolve(this.value));
+            return new MyPromise((resolve, reject) => queueMicrotask(() => resolve(this._value)));
         }
-        else if (this.state == "rejected") {
-            if (onRejected)
-                return new myPromise((resolve, reject) => {
-                    try {resolve(onRejected(this.value))}
-                    catch (err) {reject(err)}
+        else if (this._state == "rejected") {
+            if (typeof onRejected === 'function')
+                return new MyPromise((resolve, reject) => {
+                    queueMicrotask(() => {
+                        try { resolve(onRejected(this._value)) }
+                        catch (err) {reject(err)}
+                    });
                 });
-            return new myPromise((resolve, reject) => reject(this.value));
+            return new MyPromise((resolve, reject) => queueMicrotask(() => reject(this._value)));
         }
-        else if (this.state == "pending") {
-            return new myPromise((resolve, reject) => {
-                if (onFulfilled)
-                    this.onFulfilledCallbacks.push((res) => {
+        else if (this._state == "pending") {
+            return new MyPromise((resolve, reject) => {
+                if (typeof onFulfilled === 'function')
+                    this._fulfilledQueue.push(res => {
                         try {resolve(onFulfilled(res))}
                         catch (err) {reject(err)}
                     });
                 else
-                    this.onFulfilledCallbacks.push((res) => resolve(res));
-                if (onRejected)
-                    this.onRejectedCallbacks.push((res) => {
+                    this._fulfilledQueue.push(res => resolve(res));
+                if (typeof onRejected === 'function')
+                    this._rejectedQueue.push(res => {
                         try {resolve(onRejected(res))}
                         catch (err) {reject(err)}
                     });
                 else 
-                    this.onRejectedCallbacks.push((res) => reject (res));
+                    this._rejectedQueue.push(res => reject (res));
             });
         }
     }
@@ -87,7 +104,9 @@ class myPromise {
         return this.then(
             (value) => {
                 try {
-                    onFinally();
+                    if (typeof onFinally === 'function') {
+                        queueMicrotask(() => onFinally());
+                    }
                 }
                 catch (err) {
                     throw err;
@@ -96,7 +115,9 @@ class myPromise {
             },
             (value) => {
                 try {
-                    onFinally();
+                    if (typeof onFinally === 'function') {
+                        queueMicrotask(() => onFinally());
+                    }
                 }
                 catch (err) {
                     throw err;
@@ -107,10 +128,15 @@ class myPromise {
     }
 
     static resolve(value) {
-        console.log("value", value);
-        return new myPromise((resolveOuter) => {
-            if (typeof(value) === 'object' && value.then) {
-                value.then(res => resolveOuter(res));
+        return new MyPromise((resolveOuter, rejectOuter) => {
+            if (value && (typeof value === 'object' 
+                ||  typeof value === 'function')
+                &&  typeof value.then === 'function') {
+                
+                value.then(
+                res => resolveOuter(res),
+                err => rejectOuter(err)
+                );
             }
             else {
                 resolveOuter(value);
@@ -119,110 +145,141 @@ class myPromise {
     }
 
     static reject(value) {
-        return new myPromise((resolve, reject) => reject(value));
+        return new MyPromise((resolve, reject) => reject(value));
+    }
+
+    static all(promises) {
+        this._checkIterable(promises);
+
+        return new MyPromise((resolve, reject) => {
+            if (promises.length == 0) {
+                resolve(promises);
+            }
+            
+            let results = [ ];
+            let fulfilled_count = 0;
+
+            for (let i = 0; i < promises.length; i++) {
+                MyPromise.resolve(promises[i]).then(
+                    res => {
+                        results[i] = res;
+                        
+                        fulfilled_count++;
+                        if (fulfilled_count == promises.length) {
+                            resolve(results);
+                        }
+                    },
+                    err => reject(err)
+                )
+            }
+
+        })
+    }
+
+    static allSettled(promises) {
+        this._checkIterable(promises);
+
+        return new MyPromise(resolve => {
+            if (promises.length == 0) {
+                resolve([ ]);
+            }
+
+            let results = [ ];
+            let settled_count = 0;
+
+            for (let i = 0; i < promises.length; i++) {
+                MyPromise.resolve(promises[i]).then(
+                    res => {
+                        results[i] = { status: "fulfilled", value: res};
+                        
+                        settled_count++;
+                        if (settled_count == promises.length) {
+                            resolve(results);
+                        }
+                    },
+                    err => {
+                        results[i] = { status: "rejected", reason: err};
+
+                        settled_count++;
+                        if (settled_count == promises.length) {
+                            resolve(results);
+                        }
+                    }
+                )
+            }
+        });
+    }
+
+    static race(promises) {
+        this._checkIterable(promises);
+
+        return new MyPromise((resolve, reject) => {
+            for (const promise of promises) {
+                MyPromise.resolve(promise).then(
+                    res => resolve(res),
+                    err => reject(err)                    
+                )
+            }
+        })
+    }
+
+    static any(promises) {
+        this._checkIterable(promises);
+        
+        return new MyPromise((resolve, reject) => {
+            if (promises.length == 0) {
+                let agg = new AggregateError([ ]);
+                agg.message = "All promises were rejected";
+                agg.stack   = "";
+                reject(agg);
+            }
+
+            let errors = [];
+            let errors_count = 0;
+
+            for (let i = 0; i < promises.length; i++) {
+                MyPromise.resolve(promises[i]).then(
+                    res => resolve(res),
+                    err => {
+                        errors[i] = err;
+                        errors_count++;
+                        if (errors_count == promises.length) {
+                            let agg = new AggregateError(errors);
+                            agg.message = "All promises were rejected";
+                            agg.stack   = "";
+                            reject(agg);
+
+                        }
+                    } 
+                )
+            }
+        })
+    }
+
+    static try(func, ...args) {
+        return new MyPromise(resolve => {
+            resolve(func(...args));
+        })
+    }
+
+    static withResolvers() {
+        let resolve, reject;
+        const promise = new MyPromise((res, rej) => {
+            resolve = res;
+            reject = rej;
+        });
+        return { promise, resolve, reject };
+    }
+
+    static _checkIterable(obj) {
+        if (typeof obj === 'undefined') {
+            throw new TypeError(`${obj} is not iterable (cannot read property Symbol(Symbol.iterator))`);
+        }
+        else if (typeof obj[Symbol.iterator] !== 'function') {
+            throw new TypeError(`${typeof obj} ${obj} is not iterable (cannot read property Symbol(Symbol.iterator))`)
+        }
     }
 
 }
 
-// let b = myPromise.resolve(myPromise.resolve(myPromise.resolve(4)));
-// b.then(console.log);
-
-// let c = new myPromise(resolve3 => {
-//             new myPromise(resolve2 => {
-//                 new myPromise(resolve1 => {
-//                     resolve1(1);
-//                 }).then(value1 => resolve2(value1))
-//             }).then(value2 => resolve3(value2))
-//         });
-// c.then(console.log)
-
-// Promise.reject(42).catch(console.error);
-// Promise.reject(Promise.reject(421)).catch(console.error);
-// Promise.reject(123);
-
-// myPromise.reject(456);
-new Promise((resolve, reject) => reject(888));
-new myPromise((resolve, reject) => reject(999));
-// myPromise.reject(0).catch(console.error);
-// myPromise.reject(myPromise.reject(1)).catch(console.error)
-
-// let x = Promise.resolve(69);
-// x.then(console.log);
-
-// let y = myPromise.resolve(69);
-// y.then(console.log);
-
-// let a = Promise.resolve(Promise.resolve(Promise.resolve(3)));
-// a.then(console.log);
-
-
-
-// new myPromise((resolve, reject) => reject(69)).catch(console.log);
-// new myPromise((resolve, reject) => {throw 42}).catch(console.log);
-
-// new myPromise((resolve, reject) => resolve(1))
-//     .then((res) => {
-//         throw Error(res);
-//     })
-//     .catch((err) => console.error("Uh oh!!!", err.name, err.message))
-
-// new myPromise((resolve, reject) => resolve(1))
-//     .then((res) => {
-//         noSuchFunction();
-//     })
-//     .catch((err) => console.error("Uh oh!!!", err.name, err.message))
-
-// new myPromise((resolve, reject) => resolve(1))
-//     .finally((res) => {
-//         doesNotExist();
-//     })
-//     .catch((err) => console.error("Uh oh!!!", err.name, err.message))
-
-// f = new myPromise((resolve, reject) => reject(42));
-// f.finally(console.error).catch(console.error);
-
-
-// user = new myPromise((resolve, reject) => reject(123));
-// user.then(
-//     (value) => console.log(value), 
-//     (err) => console.error("Error:", err)
-// );
-// console.log(user);
-
-// data = new myPromise((resolve, reject) => resolve(1))
-// // data = new myPromise((resolve, reject) => setTimeout(() => resolve(1), 1000))
-//     .then()
-//     .then(null)
-    // .then((res) => {
-    //     console.log(res);
-    //     return res * 2;
-    // })
-//     .then()
-//     .then(null)
-//     .then((res) => {
-//         console.log(res);
-//         return res * 2;
-//     })
-//     .then((res) => {
-//         console.log(res);
-//         return res * 2;
-//     })
-//     .then()
-//     .then(null);
-
-// setTimeout(() => {}, 2000);
-
-// content = new myPromise((resolve, reject) => reject(69));
-// content.then(
-//     (res) => (console.log("res:",res)),
-//     (err) => (console.error("err:",err))
-// );
-// content.then(null, console.debug);
-// content.then(null, console.error);
-
-// content.then(
-//     (res) => (console.log("res:",res)),
-//     (err) => (console.error("err:",err))
-// )
-// .then(null, console.debug)
-// .then(null, console.error);
+module.exports = MyPromise;
