@@ -1,6 +1,4 @@
-# My JavaScript Journey
-
-## Understanding Promises
+## Making Promises
 
 Promises are among the hardest concepts in JavaScript. 
 
